@@ -1,0 +1,93 @@
+services:
+
+  # ──────────────────────────────────────────
+  # PHP-FPM
+  # ──────────────────────────────────────────
+  app:
+    build:
+      target: production
+    volumes: []                        # никаких bind-mount — код уже в образе
+    environment:
+      APP_ENV: production
+      XDEBUG_MODE: "off"
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+
+  # ──────────────────────────────────────────
+  # Queue Worker
+  # ──────────────────────────────────────────
+  queue:
+    build:
+      target: production
+    volumes: []
+    command: >
+      php artisan queue:work redis
+        --sleep=3
+        --tries=3
+        --max-time=3600
+        --queue=high,default,low
+    restart: always
+    deploy:
+      replicas: 2                      # два воркера параллельно
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+
+  # ──────────────────────────────────────────
+  # Scheduler
+  # ──────────────────────────────────────────
+  scheduler:
+    build:
+      target: production
+    volumes: []
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+
+  # ──────────────────────────────────────────
+  # Nginx
+  # ──────────────────────────────────────────
+  nginx:
+    volumes:
+      - ./docker/nginx/conf.d:/etc/nginx/conf.d:ro
+      # в проде статику отдаём из образа, не с хоста
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 64M
+
+  # ──────────────────────────────────────────
+  # PostgreSQL
+  # ──────────────────────────────────────────
+  postgres:
+    restart: always
+    environment:
+      POSTGRES_DB: ${DB_DATABASE}
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+
+  # ──────────────────────────────────────────
+  # Redis
+  # ──────────────────────────────────────────
+  redis:
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M

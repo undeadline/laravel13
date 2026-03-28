@@ -1,0 +1,150 @@
+services:
+
+  # ──────────────────────────────────────────
+  # PHP-FPM — основное приложение
+  # ──────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+      target: development
+      args:
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
+    container_name: ${APP_NAME:-laravel}_app
+    restart: unless-stopped
+    volumes:
+      - ./src:/var/www
+      - ./docker/php/php-dev.ini:/usr/local/etc/php/conf.d/99-dev.ini:ro
+      - ./docker/php/php-fpm.conf:/usr/local/etc/php-fpm.d/www.conf:ro
+    environment:
+      APP_ENV: local
+      XDEBUG_MODE: ${XDEBUG_MODE:-off}
+      XDEBUG_CLIENT_HOST: ${XDEBUG_CLIENT_HOST:-host.docker.internal}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+
+  # ──────────────────────────────────────────
+  # Nginx
+  # ──────────────────────────────────────────
+  nginx:
+    build:
+      context: .
+      dockerfile: docker/nginx/Dockerfile
+    container_name: ${APP_NAME:-laravel}_nginx
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8000}:80"
+    volumes:
+      - ./src/public:/var/www/public:ro
+      - ./docker/nginx/conf.d:/etc/nginx/conf.d:ro
+    depends_on:
+      - app
+    networks:
+      - internal
+
+  # ──────────────────────────────────────────
+  # PostgreSQL
+  # ──────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: ${APP_NAME:-laravel}_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-laravel}
+      POSTGRES_USER: ${DB_USERNAME:-laravel}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-secret}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-laravel} -d ${DB_DATABASE:-laravel}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+
+  # ──────────────────────────────────────────
+  # Redis
+  # ──────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: ${APP_NAME:-laravel}_redis
+    restart: unless-stopped
+    command: redis-server /etc/redis/redis.conf
+    volumes:
+      - redis_data:/data
+      - ./docker/redis/redis.conf:/etc/redis/redis.conf:ro
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+
+  # ──────────────────────────────────────────
+  # Queue Worker
+  # ──────────────────────────────────────────
+  queue:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+      target: development
+      args:
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
+    container_name: ${APP_NAME:-laravel}_queue
+    restart: unless-stopped
+    command: php artisan queue:work redis --sleep=3 --tries=3 --max-time=3600
+    volumes:
+      - ./src:/var/www
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+
+  # ──────────────────────────────────────────
+  # Scheduler
+  # ──────────────────────────────────────────
+  scheduler:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+      target: development
+      args:
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
+    container_name: ${APP_NAME:-laravel}_scheduler
+    restart: unless-stopped
+    command: php artisan schedule:work
+    volumes:
+      - ./src:/var/www
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
