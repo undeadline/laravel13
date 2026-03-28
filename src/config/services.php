@@ -35,4 +35,10 @@ return [
         ],
     ],
 
+    'smsaero' => [
+        'email'   => env('SMSAERO_EMAIL'),
+        'api_key' => env('SMSAERO_API_KEY'),
+        'sign'    => env('SMSAERO_SIGN', 'SMS Aero'),
+    ],
+
 ];
